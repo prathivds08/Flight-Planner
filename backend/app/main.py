@@ -126,31 +126,70 @@ async def all_flights():
 
 @app.get("/api/time-slots", response_model=TimeSlotsResponse)
 async def time_slots(source: str | None = None, destination: str | None = None):
-    """Return unique departure/arrival times, optionally filtered by city.
+    """Return departure/arrival times that actually yield valid routes.
 
-    - **source**: if provided, only return departure times from this city.
-    - **destination**: if provided, only return arrival times to this city.
-
-    The frontend uses these to populate time-constraint dropdowns so users
-    can only pick times that actually exist for their chosen route.
+    When BOTH source and destination are given, runs the planner with the
+    widest possible window first, then returns only the times that appear
+    in valid route legs. This ensures every selectable time produces results
+    and that routes differ meaningfully across city pairs.
     """
+    MAX_TIME = 1439  # cap at 11:59 PM to avoid midnight-overflow issues
+
+    if source and destination and source != destination:
+        # Wide-window search to discover all reachable route flights
+        t1_wide = min(
+            (f.departure_time for f in _flights if f.start_city == source),
+            default=0
+        )
+        t2_wide = MAX_TIME
+
+        cheapest_r  = _planner.cheapest_route(source, destination, t1_wide, t2_wide)
+        fastest_r   = _planner.least_flights_earliest_route(source, destination, t1_wide, t2_wide)
+        cheapfast_r = _planner.least_flights_cheapest_route(source, destination, t1_wide, t2_wide)
+        all_legs    = cheapest_r + fastest_r + cheapfast_r
+
+        if all_legs:
+            # Departure times: first-leg flights FROM source
+            first_deps = sorted(set(
+                f.departure_time for f in all_legs if f.start_city == source
+            ))
+            # Arrival times: last-leg flights TO destination
+            last_arrs = sorted(set(
+                min(f.arrival_time, MAX_TIME) for f in all_legs if f.end_city == destination
+            ))
+            # Fallback if hop structure means source/dest don't appear directly
+            if not first_deps:
+                first_deps = sorted(set(f.departure_time for f in all_legs))
+            if not last_arrs:
+                last_arrs = sorted(set(min(f.arrival_time, MAX_TIME) for f in all_legs))
+
+            return TimeSlotsResponse(
+                departure_times=[TimeSlot(value=t, label=format_time(t)) for t in first_deps],
+                arrival_times=[TimeSlot(value=t, label=format_time(t)) for t in last_arrs],
+            )
+
+        # No route found for this pair — surface city-level times as fallback
+        dep_times = sorted(set(f.departure_time for f in _flights if f.start_city == source))
+        arr_times = sorted(set(min(f.arrival_time, MAX_TIME) for f in _flights if f.end_city == destination))
+        return TimeSlotsResponse(
+            departure_times=[TimeSlot(value=t, label=format_time(t)) for t in dep_times],
+            arrival_times=[TimeSlot(value=t, label=format_time(t)) for t in arr_times],
+        )
+
+    # Single-city filter (no route context)
     if source:
         dep_times = sorted(set(f.departure_time for f in _flights if f.start_city == source))
     else:
         dep_times = sorted(set(f.departure_time for f in _flights))
 
     if destination:
-        arr_times = sorted(set(f.arrival_time for f in _flights if f.end_city == destination))
+        arr_times = sorted(set(min(f.arrival_time, MAX_TIME) for f in _flights if f.end_city == destination))
     else:
-        arr_times = sorted(set(f.arrival_time for f in _flights))
+        arr_times = sorted(set(min(f.arrival_time, MAX_TIME) for f in _flights))
 
     return TimeSlotsResponse(
-        departure_times=[
-            TimeSlot(value=t, label=format_time(t)) for t in dep_times
-        ],
-        arrival_times=[
-            TimeSlot(value=t, label=format_time(t)) for t in arr_times
-        ],
+        departure_times=[TimeSlot(value=t, label=format_time(t)) for t in dep_times],
+        arrival_times=[TimeSlot(value=t, label=format_time(t)) for t in arr_times],
     )
 
 

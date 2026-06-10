@@ -159,8 +159,11 @@ async def fetch_airlabs_flights() -> tuple[list[Flight], dict[int, str]]:
                     arr_time = _parse_time(entry.get("arr_time", ""))
                     if dep_time < 0 or arr_time < 0:
                         continue
+                    # Cap both times at 1439 (11:59 PM); skip impossible arrivals
+                    dep_time = min(dep_time, 1439)
+                    arr_time = min(arr_time, 1439)
                     if arr_time <= dep_time:
-                        arr_time += 1440  # crosses midnight → add 24 h
+                        continue  # skip overnight/same-time flights; can't represent them cleanly
 
                     # Deduplicate identical (city‑pair, dep_time) combos
                     route_key = (dep_city, arr_city, dep_time)
