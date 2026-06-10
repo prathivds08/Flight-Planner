@@ -19,7 +19,7 @@ from app.models import (
     TimeSlotsResponse,
 )
 from app.planner import Planner
-from app.data_loader import load_flights, get_cities
+from app.data_loader import load_flights, get_cities, get_data_source
 
 
 # ── Module-level state ──────────────────────────────────────────────────────
@@ -101,11 +101,13 @@ def _serialize_route(route_flights: list, strategy: str) -> RouteResponse:
 @app.get("/api/health")
 async def health():
     """Health check endpoint."""
+    source = get_data_source()
     return {
         "status": "ok",
         "flights_loaded": len(_flights),
         "cities": len(get_cities(_flights)),
-        "mode": "mock" if settings.use_mock_data else "live (AirLabs)",
+        "data_source": source,
+        "mode": "live (AirLabs)" if source == "airlabs" else "mock (CSV fallback)",
     }
 
 
@@ -123,14 +125,24 @@ async def all_flights():
 
 
 @app.get("/api/time-slots", response_model=TimeSlotsResponse)
-async def time_slots():
-    """Return all unique departure and arrival times from the current data.
+async def time_slots(source: str | None = None, destination: str | None = None):
+    """Return unique departure/arrival times, optionally filtered by city.
 
-    The frontend uses these to populate the time-constraint dropdowns so
-    users can only pick times that actually exist in the flight network.
+    - **source**: if provided, only return departure times from this city.
+    - **destination**: if provided, only return arrival times to this city.
+
+    The frontend uses these to populate time-constraint dropdowns so users
+    can only pick times that actually exist for their chosen route.
     """
-    dep_times = sorted(set(f.departure_time for f in _flights))
-    arr_times = sorted(set(f.arrival_time for f in _flights))
+    if source:
+        dep_times = sorted(set(f.departure_time for f in _flights if f.start_city == source))
+    else:
+        dep_times = sorted(set(f.departure_time for f in _flights))
+
+    if destination:
+        arr_times = sorted(set(f.arrival_time for f in _flights if f.end_city == destination))
+    else:
+        arr_times = sorted(set(f.arrival_time for f in _flights))
 
     return TimeSlotsResponse(
         departure_times=[

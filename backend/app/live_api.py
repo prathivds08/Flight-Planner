@@ -85,20 +85,35 @@ AIRLINE_NAMES: dict[str, str] = {
 def _parse_time(time_str: str) -> int:
     """
     Convert a time string to minutes from midnight.
-    Handles 'HH:MM' and ISO‑8601 ('2024-01-15T06:30:00+05:30') formats.
+
+    Handles all formats returned by AirLabs:
+      - 'HH:MM'                       → direct parse
+      - 'YYYY-MM-DD HH:MM'            → space-separated datetime (actual AirLabs format)
+      - 'YYYY-MM-DDTHH:MM:SS+05:30'   → ISO-8601 with T separator
+
     Returns -1 on failure.
     """
     if not time_str:
         return -1
     try:
-        if "T" not in time_str:
-            # HH:MM format
-            h, m = time_str.split(":")[:2]
+        ts = str(time_str).strip()
+
+        if "T" in ts:
+            # ISO-8601: '2024-01-15T06:30:00+05:30'
+            time_part = ts.split("T")[1][:5]
+            h, m = time_part.split(":")
             return int(h) * 60 + int(m)
-        # ISO format — extract the HH:MM portion
-        time_part = time_str.split("T")[1][:5]
-        h, m = time_part.split(":")
+
+        if " " in ts:
+            # AirLabs actual format: '2026-06-10 11:20'
+            time_part = ts.split(" ")[1][:5]
+            h, m = time_part.split(":")
+            return int(h) * 60 + int(m)
+
+        # Plain 'HH:MM'
+        h, m = ts.split(":")[:2]
         return int(h) * 60 + int(m)
+
     except (ValueError, IndexError):
         return -1
 

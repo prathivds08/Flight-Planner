@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Strategy } from "@/lib/types";
+import { useState, useEffect, useRef } from "react";
+import { TimeSlot } from "@/lib/types";
+import { fetchTimeSlots } from "@/lib/api";
 
 interface SearchFormProps {
   cities: string[];
@@ -9,38 +10,14 @@ interface SearchFormProps {
     source: string,
     destination: string,
     t1: number,
-    t2: number,
-    strategy: Strategy
+    t2: number
   ) => void;
   loading: boolean;
   initialLoading: boolean;
 }
 
-const strategies: {
-  id: Strategy;
-  label: string;
-  icon: string;
-  desc: string;
-}[] = [
-  {
-    id: "cheapest",
-    label: "Cheapest",
-    icon: "💰",
-    desc: "Lowest total fare",
-  },
-  {
-    id: "least-flights-earliest",
-    label: "Fastest",
-    icon: "⚡",
-    desc: "Fewest stops, earliest",
-  },
-  {
-    id: "least-flights-cheapest",
-    label: "Best Value",
-    icon: "🎯",
-    desc: "Fewest stops, cheapest",
-  },
-];
+const strategies = [] as const; // strategies now shown as tabs in RouteResults
+
 
 export default function SearchForm({
   cities,
@@ -50,17 +27,105 @@ export default function SearchForm({
 }: SearchFormProps) {
   const [source, setSource] = useState("");
   const [destination, setDestination] = useState("");
-  const [t1, setT1] = useState(0);
-  const [t2, setT2] = useState(500);
-  const [strategy, setStrategy] = useState<Strategy>("cheapest");
+  const [t1, setT1] = useState<number | "">("");
+  const [t2, setT2] = useState<number | "">("");
+
+  const [departureSlots, setDepartureSlots] = useState<TimeSlot[]>([]);
+  const [arrivalSlots, setArrivalSlots] = useState<TimeSlot[]>([]);
+  const [timeSlotsLoading, setTimeSlotsLoading] = useState(false);
+
+  // Track whether we've auto-searched for the current city pair
+  const autoSearched = useRef(false);
+
+  /* ── Fetch city-specific time slots when cities change ────────── */
+  useEffect(() => {
+    if (!source || !destination || source === destination) {
+      setDepartureSlots([]);
+      setArrivalSlots([]);
+      setT1("");
+      setT2("");
+      return;
+    }
+
+    let cancelled = false;
+    setTimeSlotsLoading(true);
+    autoSearched.current = false; // reset for new city pair
+
+    fetchTimeSlots(source, destination)
+      .then((data) => {
+        if (cancelled) return;
+        setDepartureSlots(data.departure_times);
+        setArrivalSlots(data.arrival_times);
+
+        // Pick widest valid window: earliest departure → latest arrival
+        const depTime = data.departure_times[0]?.value;
+        const arrTime = data.arrival_times[data.arrival_times.length - 1]?.value;
+
+        if (depTime !== undefined) setT1(depTime);
+        if (arrTime !== undefined) setT2(arrTime);
+
+        // Auto-search immediately with the widest time window
+        if (
+          depTime !== undefined &&
+          arrTime !== undefined &&
+          arrTime > depTime &&
+          !autoSearched.current
+        ) {
+          autoSearched.current = true;
+          onSearch(source, destination, depTime, arrTime);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDepartureSlots([]);
+          setArrivalSlots([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTimeSlotsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [source, destination]);
+
+  /* ── Sync: when departure changes, snap arrival to first valid slot ── */
+  useEffect(() => {
+    if (t1 === "" || arrivalSlots.length === 0) return;
+    // Arrival must be strictly after departure
+    const valid = arrivalSlots.filter((s) => s.value > t1);
+    if (valid.length === 0) {
+      setT2("");
+      return;
+    }
+    // If current t2 is still valid keep it, otherwise advance to earliest valid
+    if (t2 === "" || (t2 as number) <= (t1 as number)) {
+      setT2(valid[valid.length - 1].value); // auto-pick latest valid arrival
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t1, arrivalSlots]);
+
+  /* Only show arrival times strictly after the chosen departure */
+  const filteredArrivalSlots =
+    t1 !== "" ? arrivalSlots.filter((s) => s.value > t1) : arrivalSlots;
+
+  const citiesSelected = source && destination && source !== destination;
+  const timeSlotsReady = departureSlots.length > 0 && arrivalSlots.length > 0;
+  const arrivalReady   = t1 !== "" && filteredArrivalSlots.length > 0;
 
   const canSubmit =
-    source && destination && source !== destination && !loading && !initialLoading;
+    citiesSelected &&
+    t1 !== "" &&
+    t2 !== "" &&
+    !loading &&
+    !initialLoading &&
+    !timeSlotsLoading;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (canSubmit) {
-      onSearch(source, destination, t1, t2, strategy);
+      onSearch(source, destination, t1 as number, t2 as number);
     }
   };
 
@@ -87,7 +152,10 @@ export default function SearchForm({
         Find Your Route
       </h2>
 
-      {/* ── City Selectors ────────────────────────────────────────────── */}
+      {/* ── Step 1: City Selectors ─────────────────────────────────────── */}
+      <p className="text-[10px] text-accent-cyan/60 uppercase tracking-widest font-semibold mb-2">
+        Step 1 — Select Cities
+      </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div>
           <label
@@ -142,68 +210,74 @@ export default function SearchForm({
         </div>
       </div>
 
-      {/* ── Time Constraints ──────────────────────────────────────────── */}
+      {/* ── Step 2: Time Constraints (unlocked after city selection) ──── */}
+      <p className="text-[10px] text-accent-cyan/60 uppercase tracking-widest font-semibold mb-2">
+        Step 2 — Choose Time Window
+      </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div>
           <label
             htmlFor="departure-time"
             className="block text-sm text-white/50 mb-2 font-medium"
           >
-            Earliest Departure Time
+            Earliest Departure
           </label>
-          <input
+          <select
             id="departure-time"
-            type="number"
             value={t1}
             onChange={(e) => setT1(Number(e.target.value))}
-            min={0}
             className="input-field"
-            placeholder="e.g. 0"
-          />
+            disabled={!citiesSelected || !timeSlotsReady || timeSlotsLoading}
+          >
+            <option value="">
+              {!citiesSelected
+                ? "Select cities first"
+                : timeSlotsLoading
+                  ? "Loading times…"
+                  : "Select departure time"}
+            </option>
+            {departureSlots.map((slot) => (
+              <option key={slot.value} value={slot.value}>
+                {slot.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <label
             htmlFor="arrival-time"
             className="block text-sm text-white/50 mb-2 font-medium"
           >
-            Latest Arrival Time
+            Latest Arrival
           </label>
-          <input
+          <select
             id="arrival-time"
-            type="number"
             value={t2}
             onChange={(e) => setT2(Number(e.target.value))}
-            min={t1}
             className="input-field"
-            placeholder="e.g. 500"
-          />
+            disabled={!citiesSelected || !arrivalReady || timeSlotsLoading}
+          >
+            <option value="">
+              {!citiesSelected
+                ? "Select cities first"
+                : t1 === ""
+                  ? "Select departure first"
+                  : timeSlotsLoading
+                    ? "Loading times…"
+                    : filteredArrivalSlots.length === 0
+                      ? "No arrivals after chosen departure"
+                      : "Select arrival time"}
+            </option>
+            {filteredArrivalSlots.map((slot) => (
+              <option key={slot.value} value={slot.value}>
+                {slot.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* ── Strategy Toggle ───────────────────────────────────────────── */}
-      <div className="mb-6">
-        <label className="block text-sm text-white/50 mb-3 font-medium">
-          Optimization Strategy
-        </label>
-        <div className="grid grid-cols-3 gap-3">
-          {strategies.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setStrategy(s.id)}
-              className={`strategy-btn ${
-                strategy === s.id ? "strategy-btn-active" : ""
-              }`}
-            >
-              <span className="text-xl">{s.icon}</span>
-              <span className="font-medium text-sm">{s.label}</span>
-              <span className="text-[10px] text-white/35 leading-tight">
-                {s.desc}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
+
 
       {/* ── Submit Button ─────────────────────────────────────────────── */}
       <button

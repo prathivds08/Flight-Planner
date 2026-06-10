@@ -14,6 +14,10 @@ from app.config import settings
 from app.live_api import fetch_airlabs_flights
 
 
+# Track the actual data source used (set by load_flights)
+_data_source: str = "unknown"
+
+
 async def load_flights() -> tuple[list[Flight], dict[int, str]]:
     """
     Load flights from the best available source.
@@ -21,18 +25,27 @@ async def load_flights() -> tuple[list[Flight], dict[int, str]]:
     Returns:
         (flights, airline_map)  where airline_map maps flight_no → airline name
     """
+    global _data_source
+
     # ── Try live data first ─────────────────────────────────────────────
     if not settings.use_mock_data:
         flights, airline_map = await fetch_airlabs_flights()
         if flights:
+            _data_source = "airlabs"
             print(f"[DataLoader] Loaded {len(flights)} flights from AirLabs API")
             return flights, airline_map
         print("[DataLoader] AirLabs returned no data — falling back to CSV")
 
-    # ── Fallback: CSV with market‑jitter ────────────────────────────────
+    # ── Fallback: CSV with market-jitter ────────────────────────────────
     flights, airline_map = _load_csv_flights()
+    _data_source = "csv"
     print(f"[DataLoader] Loaded {len(flights)} flights from CSV (mock mode)")
     return flights, airline_map
+
+
+def get_data_source() -> str:
+    """Return the actual data source used ('airlabs' or 'csv')."""
+    return _data_source
 
 
 def _load_csv_flights() -> tuple[list[Flight], dict[int, str]]:
@@ -47,11 +60,11 @@ def _load_csv_flights() -> tuple[list[Flight], dict[int, str]]:
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            # Apply ±15 % fare jitter to simulate dynamic pricing
+            # Apply +/-15 % fare jitter to simulate dynamic pricing
             base_fare = int(row["fare"])
             jittered_fare = max(500, int(base_fare * random.uniform(0.85, 1.15)))
 
-            # Apply ±3 time‑unit jitter for schedule variance
+            # Apply +/-3 time-unit jitter for schedule variance
             time_offset = random.randint(-3, 3)
             dep_time = max(0, int(row["departure_time"]) + time_offset)
             arr_time = max(dep_time + 10, int(row["arrival_time"]) + time_offset)

@@ -6,12 +6,22 @@ import SearchForm from "@/components/SearchForm";
 import RouteResults from "@/components/RouteResults";
 import GraphVisualizer from "@/components/GraphVisualizer";
 import { fetchCities, fetchAllFlights, fetchRoute } from "@/lib/api";
-import { FlightSegment, RouteResponse, Strategy } from "@/lib/types";
+import { FlightSegment, RouteResponse } from "@/lib/types";
+
+export interface AllResults {
+  cheapest: RouteResponse | null;
+  fastest: RouteResponse | null;
+  bestValue: RouteResponse | null;
+}
 
 export default function Home() {
   const [cities, setCities] = useState<string[]>([]);
   const [allFlights, setAllFlights] = useState<FlightSegment[]>([]);
-  const [result, setResult] = useState<RouteResponse | null>(null);
+  const [results, setResults] = useState<AllResults>({
+    cheapest: null,
+    fastest: null,
+    bestValue: null,
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -37,35 +47,47 @@ export default function Home() {
     init();
   }, []);
 
-  /* ── Handle route search ────────────────────────────────────────── */
+  /* ── Handle route search — fetch all 3 strategies in parallel ───── */
   const handleSearch = useCallback(
     async (
       source: string,
       destination: string,
       t1: number,
-      t2: number,
-      strategy: Strategy
+      t2: number
     ) => {
       setLoading(true);
       setError(null);
-      setResult(null);
+      setResults({ cheapest: null, fastest: null, bestValue: null });
+
+      const params = { start_city: source, end_city: destination, t1, t2 };
 
       try {
-        const data = await fetchRoute(strategy, {
-          start_city: source,
-          end_city: destination,
-          t1,
-          t2,
-        });
-        setResult(data);
+        const [cheapest, fastest, bestValue] = await Promise.all([
+          fetchRoute("cheapest", params),
+          fetchRoute("least-flights-earliest", params),
+          fetchRoute("least-flights-cheapest", params),
+        ]);
+        setResults({ cheapest, fastest, bestValue });
       } catch {
-        setError("Failed to find route. Please try again.");
+        setError("Failed to find routes. Please try again.");
       } finally {
         setLoading(false);
       }
     },
     []
   );
+
+  /* Active route for graph highlight — pick first non-empty result */
+  const activeRoute =
+    results.cheapest?.route ||
+    results.fastest?.route ||
+    results.bestValue?.route ||
+    [];
+
+  const hasResults =
+    results.cheapest !== null ||
+    results.fastest !== null ||
+    results.bestValue !== null;
 
   return (
     <main className="min-h-screen relative overflow-hidden">
@@ -116,12 +138,12 @@ export default function Home() {
           )}
 
           {/* Results + Graph */}
-          {(result || allFlights.length > 0) && (
+          {(hasResults || loading || allFlights.length > 0) && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-2">
-              <RouteResults result={result} loading={loading} />
+              <RouteResults results={results} loading={loading} />
               <GraphVisualizer
                 allFlights={allFlights}
-                route={result?.route || []}
+                route={activeRoute}
               />
             </div>
           )}

@@ -31,7 +31,7 @@ export default function FlightCard({ flight, index, isLast }: FlightCardProps) {
               {flight.start_city}
             </p>
             <p className="text-xs text-white/35 mt-0.5">
-              Depart: t={flight.departure_time}
+              Depart: {flight.departure_time_formatted}
             </p>
           </div>
 
@@ -58,7 +58,7 @@ export default function FlightCard({ flight, index, isLast }: FlightCardProps) {
               {flight.end_city}
             </p>
             <p className="text-xs text-white/35 mt-0.5">
-              Arrive: t={flight.arrival_time}
+              Arrive: {flight.arrival_time_formatted}
             </p>
           </div>
         </div>

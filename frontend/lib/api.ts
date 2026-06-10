@@ -1,6 +1,6 @@
 /* ── API Client — communicates with the FastAPI backend ────────────────── */
 
-import { FlightSegment, RouteResponse, RouteRequest, Strategy } from "./types";
+import { FlightSegment, RouteResponse, RouteRequest, Strategy, TimeSlotsResponse } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -21,6 +21,24 @@ export async function fetchCities(): Promise<string[]> {
 export async function fetchAllFlights(): Promise<FlightSegment[]> {
   const res = await fetch(`${API_BASE}/api/flights`);
   if (!res.ok) throw new Error("Failed to fetch flights");
+  return res.json();
+}
+
+/**
+ * Fetch available departure and arrival time slots from the current data.
+ * Optionally filtered by source city (for departures) and destination city
+ * (for arrivals) so users only see times relevant to their route.
+ */
+export async function fetchTimeSlots(
+  source?: string,
+  destination?: string
+): Promise<TimeSlotsResponse> {
+  const params = new URLSearchParams();
+  if (source) params.set("source", source);
+  if (destination) params.set("destination", destination);
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/api/time-slots${qs ? `?${qs}` : ""}`);
+  if (!res.ok) throw new Error("Failed to fetch time slots");
   return res.json();
 }
 
