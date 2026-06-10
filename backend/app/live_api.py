@@ -171,7 +171,7 @@ async def fetch_airlabs_flights() -> tuple[list[Flight], dict[int, str]]:
                         continue
                     seen.add(route_key)
 
-                    # Estimate fare with ±25 % market variance
+                    # Estimate fare with market variance (80%–130% of base fare)
                     base = ROUTE_BASE_FARES.get((dep_city, arr_city), DEFAULT_FARE)
                     fare = int(base * random.uniform(0.80, 1.30))
 

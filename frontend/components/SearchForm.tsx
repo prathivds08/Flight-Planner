@@ -16,7 +16,8 @@ interface SearchFormProps {
   initialLoading: boolean;
 }
 
-const strategies = [] as const; // strategies now shown as tabs in RouteResults
+// Strategies are no longer selected in this form — they are shown as tabs in RouteResults
+const strategies = [] as const; // kept for reference; unused in this component
 
 
 export default function SearchForm({

@@ -32,7 +32,7 @@ class Planner:
         while not queue.is_empty():
             current_city, path, current_time = queue.dequeue()
             if current_city == end_city:
-                if best_route==None and current_time<best_arrival_time: #if no route found yet
+                if best_route is None: #if no route found yet, record it as the best
                     best_route = path
                     best_arrival_time = current_time
                 elif len(path) < len(best_route): #if found a route with fewer flights, update best_route and best_arrival_time
@@ -90,7 +90,7 @@ class Planner:
             cumulative_fare, current_city, path, current_time = heap.extract()
             
             #if the end city is reached, the path is the best route since the heap is a min-heap on fares
-            #since it is a min-heap on fares, the element extracted is the cheapaest route to the current city.
+            #since it is a min-heap on fares, the element extracted is the cheapest route to the current city.
             #hence, if the current city is the end city, we have found the best route
             if current_city == end_city:
                 best_route = path
